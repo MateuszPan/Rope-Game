@@ -1,0 +1,236 @@
+fApp.cpp
+
+#include "ofApp.h"
+
+void ofApp::setup() {
+    ofSetBackgroundColor(0);
+    cam.setDistance(100);
+
+    int numParticles = 20;
+    float spacing = 5.0f;
+    float stiffness = 50.0f;
+
+    for (int i = 0; i < numParticles; i++) {
+        glm::vec3 position = glm::vec3(0, -i * spacing, 0);
+        ropeParticles.emplace_back(position);
+    }
+
+    for (int i = 0; i < numParticles - 1; i++) {
+        ropeSprings.emplace_back(&ropeParticles[i], &ropeParticles[i + 1], stiffness);
+    }
+
+    anchor = &ropeParticles[0];
+    stone = &ropeParticles.back();
+
+    deltaTime = 1.0f / 60.0f;
+    windDirection = glm::vec3(1.0f, 0, 0);
+    windStrength = 1.0f;
+
+    goldObjectPosition = stone->position + glm::vec3(ofRandom(-20, 20), ofRandom(-20, 20), ofRandom(-20, 20));
+    goldObjectRadius = 5.0f;
+
+    gameEnded = false;
+}
+
+void ofApp::update() {
+    if (gameEnded) return;
+
+    glm::vec3 gravity(0, -9.8, 0);
+    glm::vec3 wind = windDirection * windStrength;
+
+    for (auto& particle : ropeParticles) {
+        particle.applyForce(gravity);
+        particle.applyForce(wind);
+    }
+
+    for (auto& spring : ropeSprings) {
+        spring.update();
+    }
+
+    for (auto& particle : ropeParticles) {
+        particle.update(deltaTime);
+    }
+
+    anchor->position = glm::vec3(0, 0, 0);
+    anchor->prevPosition = anchor->position;
+
+    if (glm::distance(stone->position, goldObjectPosition) <= goldObjectRadius) {
+        gameEnded = true;
+    }
+}
+
+void ofApp::draw() {
+    cam.begin();
+    ofSetLineWidth(2.0f);
+    ofSetColor(255);
+    for (size_t i = 0; i < ropeParticles.size() - 1; i++) {
+        ofDrawLine(ropeParticles[i].position, ropeParticles[i + 1].position);
+    }
+
+    ofSetColor(255, 0, 0);
+    ofDrawSphere(stone->position.x, stone->position.y, stone->position.z, 3.0f);
+
+    ofSetColor(255, 215, 0);
+    ofDrawSphere(goldObjectPosition.x, goldObjectPosition.y, goldObjectPosition.z, goldObjectRadius);
+
+    if (gameEnded) {
+        ofSetColor(0, 255, 0);
+        ofDrawBitmapString("Congratulations! You reached the gold object!", 10, 20);
+    }
+
+    cam.end();
+}
+
+void ofApp::keyPressed(int key) {
+    if (key == 'a') windDirection = glm::vec3(-1, 0, 0);
+    if (key == 'd') windDirection = glm::vec3(1, 0, 0);
+    if (key == 'w') windDirection = glm::vec3(0, 1, 0);
+    if (key == 's') windDirection = glm::vec3(0, -1, 0);
+    if (key == 'q' && windStrength > 1.0f) windStrength -= 1.0f;
+    if (key == 'e' && windStrength < 4.0f) windStrength += 1.0f;
+}
+
+void ofApp::keyReleased(int key) {}
+
+void ofApp::mouseMoved(int x, int y) {}
+
+void ofApp::mouseDragged(int x, int y, int button) {}
+
+void ofApp::mousePressed(int x, int y, int button) {
+    if (button == OF_MOUSE_BUTTON_LEFT) {
+        glm::vec3 mousePos = cam.screenToWorld(glm::vec3(x, y, 0));
+        float distanceToStone = glm::length(stone->position - mousePos);
+        if (distanceToStone < 10.0f) {
+            glm::vec3 pushDirection = glm::normalize(stone->position - mousePos);
+            float pushStrength = 50.0f;
+            stone->applyForce(pushDirection * pushStrength);
+        }
+    }
+}
+
+void ofApp::mouseReleased(int x, int y, int button) {}
+
+void ofApp::mouseEntered(int x, int y) {}
+
+void ofApp::mouseExited(int x, int y) {}
+
+void ofApp::windowResized(int w, int h) {}
+
+void ofApp::gotMessage(ofMessage msg) {}
+
+void ofApp::dragEvent(ofDragInfo dragInfo) {}
+
+
+
+ofApp.h
+
+
+#pragma once
+
+#include "ofMain.h"
+
+struct Particle {
+    glm::vec3 position;
+    glm::vec3 prevPosition;
+    glm::vec3 acceleration;
+    float mass;
+
+    Particle(glm::vec3 startPos) {
+        position = startPos;
+        prevPosition = startPos;
+        acceleration = glm::vec3(0, 0, 0);
+        mass = 1.0f;
+    }
+
+    void applyForce(const glm::vec3& force) {
+        acceleration += force / mass;
+    }
+
+    void update(float deltaTime) {
+        glm::vec3 temp = position;
+        position += position - prevPosition + acceleration * deltaTime * deltaTime;
+        prevPosition = temp;
+        acceleration = glm::vec3(0, 0, 0);
+    }
+};
+
+struct Spring {
+    Particle* p1;
+    Particle* p2;
+    float restLength;
+    float k;
+
+    Spring(Particle* particle1, Particle* particle2, float stiffness) {
+        p1 = particle1;
+        p2 = particle2;
+        restLength = glm::distance(p1->position, p2->position);
+        k = stiffness;
+    }
+
+    void update() {
+        glm::vec3 dir = p1->position - p2->position;
+        float len = glm::length(dir);
+        float forceMagnitude = k * (len - restLength);
+        glm::vec3 force = glm::normalize(dir) * forceMagnitude;
+        p1->applyForce(-force);
+        p2->applyForce(force);
+    }
+};
+
+class ofApp : public ofBaseApp {
+public:
+    void setup();
+    void update();
+    void draw();
+
+    void keyPressed(int key);
+    void keyReleased(int key);
+    void mouseMoved(int x, int y);
+    void mouseDragged(int x, int y, int button);
+    void mousePressed(int x, int y, int button);
+    void mouseReleased(int x, int y, int button);
+    void mouseEntered(int x, int y);
+    void mouseExited(int x, int y);
+    void windowResized(int w, int h);
+    void dragEvent(ofDragInfo dragInfo);
+    void gotMessage(ofMessage msg);
+
+    ofEasyCam cam;
+
+    std::vector<Particle> ropeParticles;
+    std::vector<Spring> ropeSprings;
+
+    Particle* stone;
+    Particle* anchor;
+
+    glm::vec3 targetPosition;
+    float targetSize;
+
+    float deltaTime;
+
+    glm::vec3 windDirection;
+    float windStrength;
+
+    glm::vec3 goldObjectPosition;
+    float goldObjectRadius;
+
+    bool gameEnded;
+};
+
+
+main.cpp
+
+#include "ofMain.h"
+#include "ofApp.h"
+
+int main( ){
+	ofGLWindowSettings settings;
+	settings.setSize(1024, 768);
+	settings.windowMode = OF_WINDOW;
+
+	auto window = ofCreateWindow(settings);
+
+	ofRunApp(window, make_shared<ofApp>());
+	ofRunMainLoop();
+
+}
